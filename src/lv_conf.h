@@ -1308,7 +1308,7 @@
 #endif
 
 /** Interface for TFT_eSPI */
-#define LV_USE_TFT_ESPI         0
+#define LV_USE_TFT_ESPI         1
 
 /** Interface for Lovyan_GFX */
 #define LV_USE_LOVYAN_GFX         0
