@@ -6,11 +6,11 @@ S3GeekGraphics *S3GeekGraphics::instance = nullptr;
 S3GeekGraphics::S3GeekGraphics()
     : display(nullptr),
       drawBuf(nullptr),
-      counterLabel(nullptr),
-      counter(0),
       currentMs(0)
 {
     instance = this;
+    for (int i = 0; i < MAX_LINES; i++)
+        lineBuffer[i] = nullptr;
 }
 
 void S3GeekGraphics::begin()
@@ -19,10 +19,59 @@ void S3GeekGraphics::begin()
     initLVGL();
     createUI();
     startTickTask();
+
+    logQueue = xQueueCreate(16, sizeof(char *));
+    configASSERT(logQueue);
 }
 
 void S3GeekGraphics::loop()
 {
+    char *msg;
+    bool hasNew = false;
+
+    // Check if there is a message
+    while (xQueueReceive(logQueue, &msg, 0) == pdTRUE)
+    {
+        hasNew = true;
+
+        // If the buffer is full, clear all messages
+        if (lineCount >= MAX_LINES)
+        {
+            // Free all old lines
+            for (int i = 0; i < lineCount; i++)
+            {
+                int idx = (lineStart + i) % MAX_LINES;
+                free(lineBuffer[idx]);
+                lineBuffer[idx] = nullptr;
+            }
+
+            // Reset ring buffer
+            lineStart = 0;
+            lineCount = 0;
+
+            // Clear LVGL textarea
+            lv_textarea_set_text(terminal, "");
+        }
+
+        // Add the new message to the buffer
+        lineBuffer[(lineStart + lineCount) % MAX_LINES] = msg;
+        lineCount++;
+
+        // Append to LVGL terminal
+        lv_textarea_add_text(terminal, msg);
+        lv_textarea_add_text(terminal, "\n");
+    }
+
+    // Scroll to bottom if there was new text
+    if (hasNew)
+    {
+        lv_obj_scroll_to_y(
+            terminal,
+            lv_obj_get_scroll_bottom(terminal),
+            LV_ANIM_OFF);
+    }
+
+    // Handle LVGL timers
     lv_timer_handler();
 }
 
@@ -64,11 +113,46 @@ void S3GeekGraphics::createUI()
 {
     lv_obj_t *scr = lv_screen_active();
 
-    counterLabel = lv_label_create(scr);
-    lv_label_set_text(counterLabel, "Count: 0");
-    lv_obj_align(counterLabel, LV_ALIGN_CENTER, 0, 0);
+    terminal = lv_textarea_create(scr);
+    lv_obj_set_size(terminal, DISP_HOR_RES, DISP_VER_RES);
+    lv_obj_align(terminal, LV_ALIGN_CENTER, 0, 0);
 
-    lv_timer_create(counterTimerCb, 1000, nullptr);
+    lv_textarea_set_one_line(terminal, false);
+    lv_obj_set_scrollbar_mode(terminal, LV_SCROLLBAR_MODE_OFF);
+    lv_textarea_set_cursor_click_pos(terminal, false);
+    lv_textarea_set_text_selection(terminal, false);
+    lv_textarea_set_password_mode(terminal, false);
+
+    /* Hide cursor via style (LVGL 9.x correct method) */
+    lv_obj_set_style_opa(terminal, LV_OPA_0, LV_PART_CURSOR);
+
+    /* Font */
+    lv_obj_set_style_text_font(
+        terminal,
+        &lv_font_montserrat_12,
+        LV_PART_MAIN);
+
+    lv_textarea_set_text(terminal, "Terminal ready...\n");
+}
+
+void S3GeekGraphics::postMessage(const char *fmt, ...)
+{
+    if (!logQueue)
+        return;
+
+    char *msg = static_cast<char *>(malloc(LINE_LEN));
+    if (!msg)
+        return;
+
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(msg, LINE_LEN, fmt, args);
+    va_end(args);
+
+    if (xQueueSend(logQueue, &msg, 0) != pdPASS)
+    {
+        free(msg); // queue full
+    }
 }
 
 void S3GeekGraphics::startTickTask()
@@ -76,7 +160,7 @@ void S3GeekGraphics::startTickTask()
     xTaskCreate(
         lvTickTask,
         "lv_tick_task",
-        2048,
+        1024,
         nullptr,
         1,
         nullptr);
@@ -102,13 +186,6 @@ void S3GeekGraphics::displayFlushCb(lv_display_t *disp,
     instance->tft.endWrite();
 
     lv_display_flush_ready(disp);
-}
-
-void S3GeekGraphics::counterTimerCb(lv_timer_t *timer)
-{
-    char buf[32];
-    snprintf(buf, sizeof(buf), "Count: %lu", instance->counter++);
-    lv_label_set_text(instance->counterLabel, buf);
 }
 
 void S3GeekGraphics::lvTickTask(void *param)

@@ -1,6 +1,8 @@
-#include <s3_wifi.h>
+#include "s3_geek_graphics.h"
+#include "s3_geek_local_time.h"
+#include "s3_geek_sd.h"
+#include "s3_geek_ftp.h"
 #include <WiFi.h>
-#include <s3_geek_graphics.h>
 
 extern S3GeekGraphics graphics;
 bool wifiConnected = false;
@@ -13,17 +15,22 @@ static void onWiFiEvent(WiFiEvent_t event)
     switch (event)
     {
     case ARDUINO_EVENT_WIFI_STA_CONNECTED:
-        // graphics.terminal_enqueue_message("WiFi connected to AP");
+        graphics.postMessage("WiFi connected to AP");
         break;
 
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:
         ipMessage = "IP address: " + WiFi.localIP().toString();
-        // graphics.terminal_enqueue_message(ipMessage.c_str());
+        graphics.postMessage(ipMessage.c_str());
         wifiConnected = true;
+
+        // Wifi is connected , we start all operations.
+        setup_local_time();
+        setup_sdcard();
+        setup_ftp();
         break;
 
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
-        // graphics.terminal_enqueue_message("WiFi disconnected");
+        graphics.postMessage("WiFi disconnected");
         wifiConnected = false;
         WiFi.reconnect();
         break;

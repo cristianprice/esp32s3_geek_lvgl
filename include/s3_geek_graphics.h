@@ -3,7 +3,6 @@
 #include <lvgl.h>
 #include <TFT_eSPI.h>
 #include <Arduino.h>
-#include "local_time.h"
 
 class S3GeekGraphics
 {
@@ -20,8 +19,17 @@ public:
 
     void begin();
     void loop();
+    void postMessage(const char *fmt, ...);
 
 private:
+    QueueHandle_t logQueue;
+    static constexpr int MAX_LINES = 7; // max number of lines in terminal
+    static constexpr int LINE_LEN = 60; // max characters per line
+
+    char *lineBuffer[MAX_LINES]; // circular buffer of lines
+    int lineStart = 0;           // oldest line index
+    int lineCount = 0;           // current number of lines
+
     /* Singleton instance (needed for static callbacks) */
     static S3GeekGraphics *instance;
 
@@ -32,10 +40,9 @@ private:
     lv_display_t *display;
     lv_color_t *drawBuf;
 
-    lv_obj_t *counterLabel;
-    uint32_t counter;
-
     uint64_t currentMs;
+
+    lv_obj_t *terminal;
 
     /* Internal helpers */
     void initDisplay();
@@ -47,7 +54,5 @@ private:
     static void displayFlushCb(lv_display_t *disp,
                                const lv_area_t *area,
                                uint8_t *px_map);
-
-    static void counterTimerCb(lv_timer_t *timer);
     static void lvTickTask(void *param);
 };
